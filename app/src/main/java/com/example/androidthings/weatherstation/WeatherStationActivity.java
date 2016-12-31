@@ -33,7 +33,7 @@ import android.view.animation.LinearInterpolator;
 import android.widget.ImageView;
 
 import com.google.android.things.contrib.driver.apa102.Apa102;
-import com.google.android.things.contrib.driver.bmx280.Bmx280SensorDriver;
+import com.example.androidthings.weatherstation.driver.Bmx280SensorDriver;
 import com.google.android.things.contrib.driver.button.Button;
 import com.google.android.things.contrib.driver.button.ButtonInputDriver;
 import com.google.android.things.contrib.driver.ht16k33.AlphanumericDisplay;
