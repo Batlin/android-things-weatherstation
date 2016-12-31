@@ -24,13 +24,15 @@ import java.util.List;
 
 @SuppressWarnings("WeakerAccess")
 public final class BoardDefaults {
+
+
     private static final String DEVICE_EDISON_ARDUINO = "edison_arduino";
     private static final String DEVICE_EDISON = "edison";
     private static final String DEVICE_RPI3 = "rpi3";
     private static final String DEVICE_NXP = "imx6ul";
     private static String sBoardVariant = "";
 
-    public static String getButtonGpioPin() {
+    public static String getButtonAGpioPin() {
         switch (getBoardVariant()) {
             case DEVICE_EDISON_ARDUINO:
                 return "IO12";
@@ -45,6 +47,30 @@ public final class BoardDefaults {
         }
     }
 
+    public static String getButtonBGpioPin() {
+        switch (getBoardVariant()) {
+            case DEVICE_RPI3:
+                return "BCM20";
+            default:
+                throw new IllegalArgumentException("Unknown device: " + Build.DEVICE);
+        }
+    }
+
+
+    public static String getButtonCGpioPin() {
+        switch (getBoardVariant()) {
+            case DEVICE_RPI3:
+                return "BCM16";
+            default:
+                throw new IllegalArgumentException("Unknown device: " + Build.DEVICE);
+        }
+    }
+
+    /*
+        LED RED: BCM6
+        LED GREEN: BCM19
+        LED BLUE: BCM26
+     */
     public static String getLedGpioPin() {
         switch (getBoardVariant()) {
             case DEVICE_EDISON_ARDUINO:

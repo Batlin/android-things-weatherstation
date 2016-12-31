@@ -155,7 +155,7 @@ public class WeatherStationActivity extends Activity {
 
         // GPIO button that generates 'A' keypresses (handled by onKeyUp method)
         try {
-            mButtonInputDriver = new ButtonInputDriver(BoardDefaults.getButtonGpioPin(),
+            mButtonInputDriver = new ButtonInputDriver(BoardDefaults.getButtonAGpioPin(),
                     Button.LogicState.PRESSED_WHEN_LOW, KeyEvent.KEYCODE_A);
             mButtonInputDriver.register();
             Log.d(TAG, "Initialized GPIO Button that generates a keypress with KEYCODE_A");
