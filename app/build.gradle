@@ -29,8 +29,8 @@ android {
     }
     buildTypes {
         debug {
-            buildConfigField "String", "PROJECT_ID", '"YOUR GOOGLE CLOUD PROJECT ID"'
-            buildConfigField "String", "PUBSUB_TOPIC", '"YOUR GOOGLE CLOUD PUBSUB TOPIC"'
+            buildConfigField "String", "PROJECT_ID", '"safeurls"'
+            buildConfigField "String", "PUBSUB_TOPIC", '"weather"'
         }
         release {
             initWith(buildTypes.debug)
