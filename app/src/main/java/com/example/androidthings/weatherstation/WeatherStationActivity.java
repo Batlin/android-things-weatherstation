@@ -20,6 +20,10 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Color;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -27,6 +31,7 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.animation.LinearInterpolator;
@@ -42,6 +47,9 @@ import com.google.android.things.pio.Gpio;
 import com.google.android.things.pio.PeripheralManagerService;
 
 import java.io.IOException;
+import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 public class WeatherStationActivity extends Activity {
 
@@ -49,12 +57,14 @@ public class WeatherStationActivity extends Activity {
 
     private enum DisplayMode {
         TEMPERATURE,
-        PRESSURE
+        PRESSURE,
+        HOUR
     }
 
     private SensorManager mSensorManager;
 
     private ButtonInputDriver mButtonInputDriver;
+    private ButtonInputDriver mButtonInputDriverC;
     private Bmx280SensorDriver mEnvironmentalSensorDriver;
     private AlphanumericDisplay mDisplay;
     private DisplayMode mDisplayMode = DisplayMode.TEMPERATURE;
@@ -77,6 +87,22 @@ public class WeatherStationActivity extends Activity {
 
     private PubsubPublisher mPubsubPublisher;
     private ImageView mImageView;
+
+    private String mUnits = "C";
+
+    final static int MSG_UPDATE_DISPLAY = 0;
+    private TimeTickReceiver mTimeTickReceiver;
+
+    private Handler mHandler = new Handler() {
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case MSG_UPDATE_DISPLAY:
+                    updateDisplay();
+                    break;
+            }
+            super.handleMessage(msg);
+        }
+    };
 
     // Callback used when we register the BMP280 sensor driver with the system's SensorManager.
     private SensorManager.DynamicSensorCallback mDynamicSensorCallback
@@ -115,7 +141,7 @@ public class WeatherStationActivity extends Activity {
             mLastTemperature = event.values[0];
             Log.d(TAG, "sensor changed: " + mLastTemperature);
             if (mDisplayMode == DisplayMode.TEMPERATURE) {
-                updateDisplay(mLastTemperature);
+                mHandler.sendEmptyMessage(MSG_UPDATE_DISPLAY);
             }
         }
 
@@ -132,7 +158,7 @@ public class WeatherStationActivity extends Activity {
             mLastPressure = event.values[0];
             Log.d(TAG, "sensor changed: " + mLastPressure);
             if (mDisplayMode == DisplayMode.PRESSURE) {
-                updateDisplay(mLastPressure);
+                mHandler.sendEmptyMessage(MSG_UPDATE_DISPLAY);
             }
             updateBarometer(mLastPressure);
         }
@@ -153,11 +179,18 @@ public class WeatherStationActivity extends Activity {
 
         mSensorManager = ((SensorManager) getSystemService(SENSOR_SERVICE));
 
+        mTimeTickReceiver = new TimeTickReceiver(mHandler);
+        registerReceiver(mTimeTickReceiver, new IntentFilter(Intent.ACTION_TIME_TICK));
+
         // GPIO button that generates 'A' keypresses (handled by onKeyUp method)
         try {
             mButtonInputDriver = new ButtonInputDriver(BoardDefaults.getButtonAGpioPin(),
                     Button.LogicState.PRESSED_WHEN_LOW, KeyEvent.KEYCODE_A);
             mButtonInputDriver.register();
+
+            mButtonInputDriverC = new ButtonInputDriver(BoardDefaults.getButtonCGpioPin(),
+                    Button.LogicState.PRESSED_WHEN_LOW, KeyEvent.KEYCODE_C);
+            mButtonInputDriverC.register();
             Log.d(TAG, "Initialized GPIO Button that generates a keypress with KEYCODE_A");
         } catch (IOException e) {
             throw new RuntimeException("Error initializing GPIO button", e);
@@ -217,36 +250,11 @@ public class WeatherStationActivity extends Activity {
         // PWM speaker
         try {
             mSpeaker = new Speaker(BoardDefaults.getSpeakerPwmPin());
-            final ValueAnimator slide = ValueAnimator.ofFloat(440, 440 * 4);
-            slide.setDuration(50);
-            slide.setRepeatCount(5);
-            slide.setInterpolator(new LinearInterpolator());
-            slide.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                @Override
-                public void onAnimationUpdate(ValueAnimator animation) {
-                    try {
-                        float v = (float) animation.getAnimatedValue();
-                        mSpeaker.play(v);
-                    } catch (IOException e) {
-                        throw new RuntimeException("Error sliding speaker", e);
-                    }
-                }
-            });
-            slide.addListener(new AnimatorListenerAdapter() {
-                @Override
-                public void onAnimationEnd(Animator animation) {
-                    try {
-                        mSpeaker.stop();
-                    } catch (IOException e) {
-                        throw new RuntimeException("Error sliding speaker", e);
-                    }
-                }
-            });
             Handler handler = new Handler(getMainLooper());
             handler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
-                    slide.start();
+                    getValueAnimator().start();
                 }
             }, SPEAKER_READY_DELAY_MS);
         } catch (IOException e) {
@@ -270,7 +278,7 @@ public class WeatherStationActivity extends Activity {
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_A) {
             mDisplayMode = DisplayMode.PRESSURE;
-            updateDisplay(mLastPressure);
+            mHandler.sendEmptyMessage(MSG_UPDATE_DISPLAY);
             try {
                 mLed.setValue(true);
             } catch (IOException e) {
@@ -278,6 +286,12 @@ public class WeatherStationActivity extends Activity {
             }
             return true;
         }
+
+        if (keyCode == KeyEvent.KEYCODE_C) {
+            getValueAnimator().start();
+            return true;
+        }
+
         return super.onKeyUp(keyCode, event);
     }
 
@@ -285,7 +299,7 @@ public class WeatherStationActivity extends Activity {
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_A) {
             mDisplayMode = DisplayMode.TEMPERATURE;
-            updateDisplay(mLastTemperature);
+            mHandler.sendEmptyMessage(MSG_UPDATE_DISPLAY);
             try {
                 mLed.setValue(false);
             } catch (IOException e) {
@@ -293,6 +307,24 @@ public class WeatherStationActivity extends Activity {
             }
             return true;
         }
+
+        if (keyCode == KeyEvent.KEYCODE_C) {
+            if (mDisplayMode == DisplayMode.TEMPERATURE) {
+                mDisplayMode = DisplayMode.HOUR;
+            } else {
+                mDisplayMode = DisplayMode.TEMPERATURE;
+            }
+
+            mHandler.sendEmptyMessage(MSG_UPDATE_DISPLAY);
+
+            try {
+                mLed.setValue(false);
+            } catch (IOException e) {
+                Log.e(TAG, "error updating LED", e);
+            }
+            return true;
+        }
+
         return super.onKeyUp(keyCode, event);
     }
 
@@ -306,6 +338,8 @@ public class WeatherStationActivity extends Activity {
         mSensorManager.unregisterListener(mPressureListener);
         mSensorManager.unregisterDynamicSensorCallback(mDynamicSensorCallback);
 
+        unregisterReceiver(mTimeTickReceiver);
+
         // Clean up peripheral.
         if (mEnvironmentalSensorDriver != null) {
             try {
@@ -318,10 +352,12 @@ public class WeatherStationActivity extends Activity {
         if (mButtonInputDriver != null) {
             try {
                 mButtonInputDriver.close();
+                mButtonInputDriverC.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }
             mButtonInputDriver = null;
+            mButtonInputDriverC = null;
         }
 
         if (mDisplay != null) {
@@ -368,14 +404,42 @@ public class WeatherStationActivity extends Activity {
         }
     }
 
-    private void updateDisplay(float value) {
+    private void updateDisplay() {
         if (mDisplay != null) {
+            String value = "";
             try {
+                switch (mDisplayMode) {
+                    case TEMPERATURE:
+                        value = getTemperatureString();
+                        break;
+                    case PRESSURE:
+                        value = getPressureString();
+                        break;
+                    case HOUR:
+                        value = getTime();
+                        break;
+                }
+
                 mDisplay.display(value);
             } catch (IOException e) {
                 Log.e(TAG, "Error setting display", e);
             }
         }
+    }
+
+    private String getTemperatureString() {
+        String s = new DecimalFormat("##.#").format(mLastTemperature);
+        return s + mUnits;
+    }
+
+    // hPa
+    private String getPressureString() {
+        return String.valueOf(mLastPressure);
+    }
+
+    private String getTime() {
+        SimpleDateFormat sdf = new SimpleDateFormat("HH.mm");
+        return sdf.format(new Date());
     }
 
     private void updateBarometer(float pressure) {
@@ -403,6 +467,52 @@ public class WeatherStationActivity extends Activity {
             mLedstrip.write(colors);
         } catch (IOException e) {
             Log.e(TAG, "Error setting ledstrip", e);
+        }
+    }
+
+    private ValueAnimator getValueAnimator() {
+        ValueAnimator slide = ValueAnimator.ofFloat(440, 440 * 4);
+        slide.setDuration(50);
+        slide.setRepeatCount(5);
+        slide.setInterpolator(new LinearInterpolator());
+        slide.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+            @Override
+            public void onAnimationUpdate(ValueAnimator animation) {
+                try {
+                    float v = (float) animation.getAnimatedValue();
+                    mSpeaker.play(v);
+                } catch (IOException e) {
+                    throw new RuntimeException("Error sliding speaker", e);
+                }
+            }
+        });
+        slide.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                try {
+                    mSpeaker.stop();
+                } catch (IOException e) {
+                    throw new RuntimeException("Error sliding speaker", e);
+                }
+            }
+        });
+
+        return slide;
+    }
+
+    public static class TimeTickReceiver extends BroadcastReceiver {
+
+        private final Handler mHandler; // Handler used to execute code on the UI thread
+
+        public TimeTickReceiver(Handler handler) {
+            this.mHandler = handler;
+        }
+
+        @Override
+        public void onReceive(final Context context, Intent intent) {
+            Log.d(TAG, "onReceive!");
+            // Post the UI updating code to our Handler
+            mHandler.sendEmptyMessage(WeatherStationActivity.MSG_UPDATE_DISPLAY);
         }
     }
 }
