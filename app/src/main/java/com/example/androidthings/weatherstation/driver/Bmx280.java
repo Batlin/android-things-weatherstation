@@ -351,7 +351,7 @@ public class Bmx280 implements AutoCloseable {
         double fineTemp = var1 + var2;
 
         //Log.d(TAG, "compensateTemperature. dig_T1: " + dig_T1 + ", dig_T2: " + dig_T2 + ", dig_T3: " + dig_T3 + ", rawTemp: " + adc_T + ", var1: "  + var1 + ", var2: " + var2 + ", fineTemp: " + fineTemp + ", final: " + fineTemp / 5120.0f);
-        return new float[]{(float)fineTemp / 5120.0f - 13, (float) fineTemp};
+        return new float[]{(float)fineTemp / 5120.0f - 3,5, (float) fineTemp};
     }
 
     // Compensation formula from the BMP280 datasheet.
